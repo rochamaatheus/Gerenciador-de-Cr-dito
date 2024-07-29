@@ -32,9 +32,9 @@ Este projeto é uma aplicação simples em Python para gerenciar créditos e dé
 
 2. **Execute o Script**:
 
-```sh
- python gerenciador_creditos.py
-```
+   ```sh
+    python gerenciador_creditos.py
+   ```
 
 ou inicie o seu .exe
 
