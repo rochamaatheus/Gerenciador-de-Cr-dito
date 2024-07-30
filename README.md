@@ -26,15 +26,15 @@ Este projeto é uma aplicação simples em Python para gerenciar créditos e dé
 1. **Clone o repositório**:
 
    ```sh
-   git clone https://github.com/seu-usuario/seu-repositorio.git
+   git clone https://github.com/rochamaatheus/Gerenciador-de-Cr-dito.git
    cd seu-repositorio
    ```
 
 2. **Execute o Script**:
 
-```sh
- python gerenciador_creditos.py
-```
+   ```sh
+    python gerenciador_creditos.py
+   ```
 
 ou inicie o seu .exe
 
