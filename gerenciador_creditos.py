@@ -42,7 +42,8 @@ execute_db_query('''
     CREATE TABLE IF NOT EXISTS monthly_salaries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         month TEXT,
-        amount REAL
+        amount REAL,
+        is_default INTEGER DEFAULT 0
     )
 ''')
 
@@ -80,7 +81,7 @@ def add_fixed_expense():
         date = datetime.now().strftime('%Y-%m-%d')
         execute_db_query('INSERT INTO fixed_expenses (item, amount, date) VALUES (?, ?, ?)', (item, amount, date))
         messagebox.showinfo('Sucesso', 'Despesa Fixa adicionada com sucesso!')
-        update_balance()
+        update_balance(discount_first_installment=True)
         clear_entries()
     except ValueError:
         messagebox.showerror('Erro', 'Por favor, insira valores válidos para a despesa fixa.')
@@ -90,7 +91,8 @@ def add_salary():
     try:
         amount = float(salary_entry.get())
         month = salary_month_entry.get()
-        execute_db_query('INSERT INTO monthly_salaries (month, amount) VALUES (?, ?)', (month, amount))
+        is_default = int(default_salary_var.get())
+        execute_db_query('INSERT INTO monthly_salaries (month, amount, is_default) VALUES (?, ?, ?)', (month, amount, is_default))
         messagebox.showinfo('Sucesso', 'Salário adicionado com sucesso!')
         update_balance()
         clear_entries()
@@ -120,48 +122,59 @@ def clean_old_debts():
         if months_passed >= installments:
             execute_db_query('DELETE FROM debts WHERE id = ?', (debt_id,))
 
-# Função para atualizar o saldo
-def update_balance(discount_first_installment=False):
-    total_credits = execute_db_query('SELECT SUM(amount) FROM credits').fetchone()[0] or 0
-    debts = execute_db_query('SELECT amount, installments, date FROM debts').fetchall()
-    
-    total_debts = 0
-    current_date = datetime.now()
-    months_to_add = int(months_entry.get()) if months_entry.get().isdigit() else None
-    
-    if months_to_add is not None:
-        # Simular passagem de meses
-        for _ in range(months_to_add):
-            if current_date.month == 12:
-                current_date = current_date.replace(year=current_date.year + 1, month=1)
-            else:
-                current_date = current_date.replace(month=current_date.month + 1)
-
-    # Adicionar os salários mensais
-    if months_to_add is not None:
-        total_salaries = 0
-        for month_offset in range(months_to_add + 1):
-            simulated_date = datetime.now() + timedelta(days=30 * month_offset)
-            month_str = simulated_date.strftime('%Y-%m')
-            salary_for_month = execute_db_query('SELECT amount FROM monthly_salaries WHERE month = ?', (month_str,)).fetchone()
-            if salary_for_month:
-                total_salaries += salary_for_month[0]
-    else:
-        total_salaries = execute_db_query('SELECT SUM(amount) FROM monthly_salaries').fetchone()[0] or 0
-
+# Função para calcular os débitos
+def calculateDebts(total_debts, debts, current_date, discount_first_installment, months_to_add):
     for amount, installments, date in debts:
+        print("Entrou no Loop de \"debts\"")
         debt_date = datetime.strptime(date, '%Y-%m-%d')
-        months_passed = (current_date.year - debt_date.year) * 12 + current_date.month - debt_date.month
-        
-        if discount_first_installment or months_to_add is None:
+        months_passed = (current_date.year - debt_date.year) * 12 + current_date.month - debt_date.month + months_to_add
+        print(f"Meses passados: {months_passed}")
+
+        if discount_first_installment:
             paid_installments = 1
         else:
             paid_installments = min(months_passed, installments)
-        
+
         total_debts += (amount / installments) * paid_installments
-    
+        print(f"Débitos totais: {total_debts}")
+
+    return total_debts
+
+# Função para atualizar o saldo
+def update_balance(discount_first_installment=False):
+    print("-"*20)
+    total_credits = execute_db_query('SELECT SUM(amount) FROM credits').fetchone()[0] or 0
+    print(f"Créditos: {total_credits}")
+    debts = execute_db_query('SELECT amount, installments, date FROM debts').fetchall()
+    print(f"Débitos: {debts}")
+
+    total_debts = 0
+    current_date = datetime.now()
+    months_to_add = int(months_entry.get()) if months_entry.get().isdigit() else 0
+
+    # Salário padrão
+    default_salary = execute_db_query('SELECT amount FROM monthly_salaries WHERE is_default = 1').fetchone()
+    default_salary = default_salary[0] if default_salary else 0
+    print(f"Salário padrão: {default_salary}")
+
+    total_salaries = 0
+    for month_offset in range(months_to_add + 1):
+        simulated_date = current_date + timedelta(days=30 * month_offset)
+        month_str = simulated_date.strftime('%Y-%m')
+        salary_for_month = execute_db_query('SELECT amount FROM monthly_salaries WHERE month = ?', (month_str,)).fetchone()
+        print(f"DB Salário por Mês: {salary_for_month}")
+        if salary_for_month:
+            total_salaries += salary_for_month[0]
+            print(f"Salário Total POR MÊS: {total_salaries}")
+        else:
+            total_salaries += default_salary
+            print(f"Salário Total: {total_salaries}")
+
+    total_debts = calculateDebts(total_debts, debts, current_date, discount_first_installment, months_to_add)
+
     balance = total_credits + total_salaries - total_debts
     balance_label.config(text=f'Saldo Atual: {balance:.2f} reais')
+    print(f"Saldo total: {balance}")
 
 # Função para limpar os campos de entrada
 def clear_entries():
@@ -204,67 +217,69 @@ def export_to_excel():
         sheet.append([expense[0], 'Despesa Fixa', expense[1], expense[2], '', expense[3]])
 
     workbook.save('relatorio_financeiro.xlsx')
-    messagebox.showinfo('Sucesso', 'Relatório exportado para relatorio_financeiro.xlsx')
+    messagebox.showinfo('Sucesso', 'Relatório exportado com sucesso!')
 
-# Criação da interface Tkinter
+# Configuração da interface Tkinter
 root = tk.Tk()
 root.title('Gerenciador Financeiro')
 
-# Entrada de créditos
+# Configuração das labels e entries para crédito
 tk.Label(root, text='Adicionar Crédito').grid(row=0, column=0, pady=10)
-tk.Label(root, text='Valor').grid(row=1, column=0, pady=10)
 credit_entry = tk.Entry(root)
-credit_entry.grid(row=1, column=1, pady=10)
-tk.Button(root, text='Adicionar', command=add_credit).grid(row=1, column=2, pady=10, padx=10)
+credit_entry.grid(row=0, column=1)
+tk.Button(root, text='Adicionar', command=add_credit).grid(row=0, column=2)
 
-# Registro de débitos
-tk.Label(root, text='Registrar Débito').grid(row=2, column=0, pady=10)
-tk.Label(root, text='Item').grid(row=3, column=0, pady=10)
+# Configuração das labels e entries para débito
+tk.Label(root, text='Registrar Débito').grid(row=1, column=0, pady=10)
 debt_item_entry = tk.Entry(root)
-debt_item_entry.grid(row=3, column=1, pady=10)
-tk.Label(root, text='Valor').grid(row=4, column=0, pady=10)
+debt_item_entry.grid(row=1, column=1)
+tk.Label(root, text='Valor').grid(row=1, column=2, pady=10)
 debt_amount_entry = tk.Entry(root)
-debt_amount_entry.grid(row=4, column=1, pady=10)
-tk.Label(root, text='Parcelas').grid(row=5, column=0, pady=10)
+debt_amount_entry.grid(row=1, column=3, pady=10)
+tk.Label(root, text='Parcelas').grid(row=1, column=4, pady=10)
 debt_installments_entry = tk.Entry(root)
-debt_installments_entry.grid(row=5, column=1, pady=10)
-tk.Button(root, text='Registrar', command=add_debt).grid(row=5, column=2, pady=10, padx=10)
+debt_installments_entry.grid(row=1, column=5, pady=10)
+tk.Button(root, text='Registrar', command=add_debt).grid(row=1, column=6, pady=10, padx=10)
 
-# Adicionar despesa fixa
-tk.Label(root, text='Adicionar Despesa Fixa').grid(row=6, column=0, pady=10)
-tk.Label(root, text='Item').grid(row=7, column=0, pady=10)
+# Configuração das labels e entries para despesas fixas
+tk.Label(root, text='Adicionar Despesa Fixa').grid(row=2, column=0, pady=10)
 fixed_expense_item_entry = tk.Entry(root)
-fixed_expense_item_entry.grid(row=7, column=1, pady=10)
-tk.Label(root, text='Valor').grid(row=8, column=0, pady=10)
+fixed_expense_item_entry.grid(row=2, column=1, pady=10)
+tk.Label(root, text='Valor').grid(row=2, column=2, pady=10)
 fixed_expense_amount_entry = tk.Entry(root)
-fixed_expense_amount_entry.grid(row=8, column=1, pady=10)
-tk.Button(root, text='Adicionar', command=add_fixed_expense).grid(row=8, column=2, pady=10, padx=10)
+fixed_expense_amount_entry.grid(row=2, column=3, pady=10)
+tk.Button(root, text='Adicionar', command=add_fixed_expense).grid(row=2, column=4, pady=10)
 
-# Adicionar salário
-tk.Label(root, text='Adicionar/Atualizar Salário').grid(row=9, column=0, pady=10)
-tk.Label(root, text='Mês (AAAA-MM)').grid(row=10, column=0, pady=10)
-salary_month_entry = tk.Entry(root)
-salary_month_entry.grid(row=10, column=1, pady=10)
-tk.Label(root, text='Valor').grid(row=11, column=0, pady=10)
+# Configuração das labels e entries para salários
+tk.Label(root, text='Adicionar Salário').grid(row=3, column=0, pady=10)
 salary_entry = tk.Entry(root)
-salary_entry.grid(row=11, column=1, pady=10)
-tk.Button(root, text='Adicionar', command=add_salary).grid(row=11, column=2, pady=10, padx=10)
-tk.Button(root, text='Atualizar', command=update_salary).grid(row=12, column=2, pady=10, padx=10)
+salary_entry.grid(row=3, column=1, pady=10)
+tk.Label(root, text='Mês (YYYY-MM)').grid(row=3, column=2, pady=10)
+salary_month_entry = tk.Entry(root)
+salary_month_entry.grid(row=3, column=3, pady=10)
+default_salary_var = tk.IntVar()
+tk.Checkbutton(root, text='Salário Padrão', variable=default_salary_var).grid(row=3, column=4, pady=10)
+tk.Button(root, text='Adicionar', command=add_salary).grid(row=3, column=5, pady=10)
+tk.Button(root, text='Atualizar', command=update_salary).grid(row=3, column=6, pady=10)
 
-# Saldo Atual
-balance_label = tk.Label(root, text='Saldo Atual: 0.00 reais')
-balance_label.grid(row=13, column=0, columnspan=3, pady=10)
-
-# Simular passagem de meses
-tk.Label(root, text='Meses a adicionar').grid(row=14, column=0, pady=10)
+# Configuração das labels e entries para meses de simulação
+tk.Label(root, text='Simular Meses').grid(row=4, column=0, pady=10)
 months_entry = tk.Entry(root)
-months_entry.grid(row=14, column=1, pady=10)
-tk.Button(root, text='Simular Passagem de Meses', command=lambda: update_balance()).grid(row=14, column=2, pady=10, padx=10)
+months_entry.grid(row=4, column=1, pady=10)
+tk.Button(root, text='Simular', command=update_balance).grid(row=4, column=2, pady=10)
 
-# Exportar para Excel
-tk.Button(root, text='Exportar para Excel', command=export_to_excel).grid(row=15, column=0, columnspan=3, pady=10)
+# Configuração do botão para exportar para Excel
+tk.Button(root, text='Exportar para Excel', command=export_to_excel).grid(row=5, column=0, pady=10)
 
-# Limpar débitos antigos
-tk.Button(root, text='Limpar Débitos Antigos', command=clean_old_debts).grid(row=16, column=0, columnspan=3, pady=10)
+# Label para exibir o saldo atual
+balance_label = tk.Label(root, text='Saldo Atual: 0.00 reais')
+balance_label.grid(row=6, column=0, columnspan=2, pady=10)
 
+# Botão para limpar débitos antigos
+tk.Button(root, text='Limpar Débitos Antigos', command=clean_old_debts).grid(row=5, column=1, pady=10)
+
+# Inicialização do saldo
+update_balance()
+
+# Inicia o loop principal do Tkinter
 root.mainloop()
