@@ -142,9 +142,10 @@ def calculateDebts(total_debts, debts, current_date, discount_first_installment,
 
 # Função para atualizar o saldo
 def update_balance(discount_first_installment=False):
-    print("-"*20)
+    print("-" * 20)
     total_credits = execute_db_query('SELECT SUM(amount) FROM credits').fetchone()[0] or 0
     print(f"Créditos: {total_credits}")
+
     debts = execute_db_query('SELECT amount, installments, date FROM debts').fetchall()
     print(f"Débitos: {debts}")
 
@@ -169,6 +170,13 @@ def update_balance(discount_first_installment=False):
         else:
             total_salaries += default_salary
             print(f"Salário Total: {total_salaries}")
+
+    # Adiciona cálculo de despesas fixas
+    fixed_expenses = execute_db_query('SELECT amount FROM fixed_expenses').fetchall()
+    print(f"Despesas Fixas: {fixed_expenses}")
+    for expense in fixed_expenses:
+        total_debts += expense[0] * months_to_add
+        print(f"Débitos totais após adicionar despesa fixa: {total_debts}")
 
     total_debts = calculateDebts(total_debts, debts, current_date, discount_first_installment, months_to_add)
 
