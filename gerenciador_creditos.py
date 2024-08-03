@@ -131,7 +131,7 @@ def calculateDebts(total_debts, debts, current_date, discount_first_installment,
         print(f"Meses passados: {months_passed}")
 
         if discount_first_installment:
-            paid_installments = 1
+            paid_installments = min(months_passed + 1, installments)
         else:
             paid_installments = min(months_passed, installments)
 
@@ -159,7 +159,7 @@ def update_balance(discount_first_installment=False):
     print(f"Salário padrão: {default_salary}")
 
     total_salaries = 0
-    for month_offset in range(months_to_add + 1):
+    for month_offset in range(months_to_add):
         simulated_date = current_date + timedelta(days=30 * month_offset)
         month_str = simulated_date.strftime('%Y-%m')
         salary_for_month = execute_db_query('SELECT amount FROM monthly_salaries WHERE month = ?', (month_str,)).fetchone()
